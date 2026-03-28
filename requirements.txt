@@ -1,0 +1,5 @@
+pytest>=7.4.0
+pyyaml>=6.0
+python-hcl2>=4.3.0
+jsonschema>=4.19.0
+requests>=2.31.0

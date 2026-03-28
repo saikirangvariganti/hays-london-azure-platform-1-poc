@@ -1,0 +1,298 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "Prometheus data source",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Mobile Backend Platform — Golden Signals Dashboard (Hays London POC)",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "id": 1,
+      "title": "Golden Signals — Mobile Backend",
+      "type": "row"
+    },
+    {
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 0.02},
+              {"color": "red", "value": 0.05}
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 1},
+      "id": 2,
+      "options": {"orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "title": "Error Rate (5xx)",
+      "type": "gauge",
+      "targets": [
+        {
+          "expr": "rate(http_requests_total{job='mobile-backend', status=~'5..'}[5m]) / rate(http_requests_total{job='mobile-backend'}[5m])",
+          "legendFormat": "Error Rate",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 0.3},
+              {"color": "red", "value": 0.5}
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 1},
+      "id": 3,
+      "title": "P95 Latency",
+      "type": "gauge",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job='mobile-backend'}[5m]))",
+          "legendFormat": "P95",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 1},
+      "id": 4,
+      "title": "Request Rate",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{job='mobile-backend'}[5m]))",
+          "legendFormat": "Req/s",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 7},
+              {"color": "red", "value": 9}
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 1},
+      "id": 5,
+      "title": "Active Pods",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "count(kube_pod_status_ready{namespace='mobile-platform', condition='true'} == 1)",
+          "legendFormat": "Ready Pods",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 5},
+      "id": 6,
+      "title": "Latency Distribution",
+      "type": "row"
+    },
+    {
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+      "id": 7,
+      "title": "Request Latency Percentiles",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{job='mobile-backend'}[5m]))",
+          "legendFormat": "P50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job='mobile-backend'}[5m]))",
+          "legendFormat": "P95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{job='mobile-backend'}[5m]))",
+          "legendFormat": "P99",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+      "id": 8,
+      "title": "Request Rate by Status Code",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(http_requests_total{job='mobile-backend'}[5m]))",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 14},
+      "id": 9,
+      "title": "Resource Utilisation",
+      "type": "row"
+    },
+    {
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 15},
+      "id": 10,
+      "title": "CPU Utilisation by Pod",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(container_cpu_usage_seconds_total{namespace='mobile-platform', container!=''}[5m])",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 15},
+      "id": 11,
+      "title": "Memory Usage by Pod",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "container_memory_working_set_bytes{namespace='mobile-platform', container!=''}",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["mobile", "aks", "platform", "public-sector"],
+  "templating": {
+    "list": [
+      {
+        "datasource": "${DS_PROMETHEUS}",
+        "definition": "label_values(kube_pod_info{namespace='mobile-platform'}, pod)",
+        "hide": 0,
+        "includeAll": true,
+        "name": "pod",
+        "options": [],
+        "query": "label_values(kube_pod_info{namespace='mobile-platform'}, pod)",
+        "refresh": 2,
+        "type": "query",
+        "label": "Pod"
+      }
+    ]
+  },
+  "time": {"from": "now-3h", "to": "now"},
+  "timepicker": {},
+  "timezone": "Europe/London",
+  "title": "Mobile Backend Platform — Golden Signals",
+  "uid": "mobile-backend-golden-signals",
+  "version": 1,
+  "weekStart": "monday"
+}

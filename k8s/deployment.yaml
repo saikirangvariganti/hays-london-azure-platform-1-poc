@@ -1,0 +1,320 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mobile-backend-ios
+  namespace: mobile-platform
+  labels:
+    app: mobile-backend
+    platform: ios
+    version: "1.0.0"
+    team: platform-engineering
+  annotations:
+    deployment.kubernetes.io/revision: "1"
+    description: "iOS mobile app backend API service"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: mobile-backend
+      platform: ios
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: mobile-backend
+        platform: ios
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Schedule on mobile workload node pool
+      nodeSelector:
+        workload-type: mobile-backend
+
+      tolerations:
+      - key: "workload-type"
+        operator: "Equal"
+        value: "mobile-backend"
+        effect: "NoSchedule"
+
+      # Pod anti-affinity — spread across nodes
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - mobile-backend
+              topologyKey: kubernetes.io/hostname
+
+      serviceAccountName: mobile-backend-sa
+
+      # Security context — run as non-root
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 3000
+        fsGroup: 2000
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+      - name: ios-backend
+        image: acrmobileplatformprod.azurecr.io/mobile-backend-ios:latest
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: metrics
+          containerPort: 8081
+          protocol: TCP
+
+        # Container security context
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+
+        # Resource requests and limits
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+
+        # Environment from Key Vault (CSI driver)
+        env:
+        - name: APP_ENV
+          value: "production"
+        - name: PLATFORM
+          value: "ios"
+        - name: PORT
+          value: "8080"
+        - name: DB_CONNECTION_STRING
+          valueFrom:
+            secretKeyRef:
+              name: mobile-backend-secrets
+              key: db-connection-string
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: mobile-backend-secrets
+              key: jwt-secret
+        - name: AZURE_CLIENT_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.annotations['azure.workload.identity/client-id']
+
+        # Volume mounts
+        volumeMounts:
+        - name: secrets-store
+          mountPath: /mnt/secrets-store
+          readOnly: true
+        - name: tmp-dir
+          mountPath: /tmp
+
+        # Health probes
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+          timeoutSeconds: 5
+
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 3
+          timeoutSeconds: 3
+
+        startupProbe:
+          httpGet:
+            path: /health/startup
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          failureThreshold: 30
+
+      volumes:
+      - name: secrets-store
+        csi:
+          driver: secrets-store.csi.k8s.io
+          readOnly: true
+          volumeAttributes:
+            secretProviderClass: "azure-keyvault-mobile-backend"
+      - name: tmp-dir
+        emptyDir: {}
+
+      terminationGracePeriodSeconds: 60
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mobile-backend-android
+  namespace: mobile-platform
+  labels:
+    app: mobile-backend
+    platform: android
+    version: "1.0.0"
+    team: platform-engineering
+  annotations:
+    description: "Android mobile app backend API service"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: mobile-backend
+      platform: android
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: mobile-backend
+        platform: android
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      nodeSelector:
+        workload-type: mobile-backend
+
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - mobile-backend
+              topologyKey: kubernetes.io/hostname
+
+      serviceAccountName: mobile-backend-sa
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 3000
+        fsGroup: 2000
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+      - name: android-backend
+        image: acrmobileplatformprod.azurecr.io/mobile-backend-android:latest
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: metrics
+          containerPort: 8081
+          protocol: TCP
+
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+
+        env:
+        - name: APP_ENV
+          value: "production"
+        - name: PLATFORM
+          value: "android"
+        - name: PORT
+          value: "8080"
+        - name: DB_CONNECTION_STRING
+          valueFrom:
+            secretKeyRef:
+              name: mobile-backend-secrets
+              key: db-connection-string
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: mobile-backend-secrets
+              key: jwt-secret
+
+        volumeMounts:
+        - name: secrets-store
+          mountPath: /mnt/secrets-store
+          readOnly: true
+        - name: tmp-dir
+          mountPath: /tmp
+
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+          timeoutSeconds: 5
+
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 3
+          timeoutSeconds: 3
+
+      volumes:
+      - name: secrets-store
+        csi:
+          driver: secrets-store.csi.k8s.io
+          readOnly: true
+          volumeAttributes:
+            secretProviderClass: "azure-keyvault-mobile-backend"
+      - name: tmp-dir
+        emptyDir: {}
+
+      terminationGracePeriodSeconds: 60
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mobile-backend-sa
+  namespace: mobile-platform
+  labels:
+    app: mobile-backend
+  annotations:
+    azure.workload.identity/client-id: "REPLACE_WITH_CLIENT_ID"

@@ -1,0 +1,262 @@
+name: AKS Mobile Platform Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'k8s/**'
+      - 'helm/**'
+      - 'terraform/**'
+      - '.github/workflows/aks_deploy.yml'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+env:
+  REGISTRY: acrmobileplatformprod.azurecr.io
+  IMAGE_NAME_IOS: mobile-backend-ios
+  IMAGE_NAME_ANDROID: mobile-backend-android
+  NAMESPACE: mobile-platform
+  HELM_CHART: helm/mobile-backend
+  TF_VERSION: "1.6.6"
+
+permissions:
+  id-token: write
+  contents: read
+  security-events: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: Validate
+  # ---------------------------------------------------------------------------
+  validate:
+    name: Validate & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: python -m pytest tests/test_poc.py -v --tb=short
+
+      - name: Lint Helm chart
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.14.0'
+
+      - name: Helm lint
+        run: helm lint ${{ env.HELM_CHART }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive terraform/
+
+      - name: Terraform validate
+        run: |
+          cd terraform
+          terraform init -backend=false
+          terraform validate
+
+  # ---------------------------------------------------------------------------
+  # Job 2: Build & Push
+  # ---------------------------------------------------------------------------
+  build-push:
+    name: Build and Push Images
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name != 'pull_request'
+    outputs:
+      image-tag: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: ACR Login
+        run: az acr login --name acrmobileplatformprod
+
+      - name: Docker metadata (iOS)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_IOS }}
+          tags: |
+            type=sha,prefix=sha-
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+
+      - name: Build and push iOS backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.ios
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+            VCS_REF=${{ github.sha }}
+            PLATFORM=ios
+
+      - name: Build and push Android backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.android
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ANDROID }}:${{ steps.meta.outputs.version }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+            VCS_REF=${{ github.sha }}
+            PLATFORM=android
+
+  # ---------------------------------------------------------------------------
+  # Job 3: Deploy to Staging
+  # ---------------------------------------------------------------------------
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-push
+    environment: staging
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.5'
+
+      - name: Get AKS credentials (staging)
+        run: |
+          az aks get-credentials \
+            --resource-group rg-mobile-platform-staging \
+            --name aks-mobile-platform-staging \
+            --overwrite-existing
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.14.0'
+
+      - name: Deploy to staging
+        run: |
+          helm upgrade --install mobile-backend ${{ env.HELM_CHART }} \
+            --namespace ${{ env.NAMESPACE }} \
+            --create-namespace \
+            --set image.tag=${{ needs.build-push.outputs.image-tag }} \
+            --set env.APP_ENV=staging \
+            --wait --timeout 5m
+
+      - name: Run smoke tests
+        run: |
+          kubectl rollout status deployment/mobile-backend-ios     -n ${{ env.NAMESPACE }} --timeout=3m
+          kubectl rollout status deployment/mobile-backend-android -n ${{ env.NAMESPACE }} --timeout=3m
+          echo "Smoke tests passed — staging deployment healthy"
+
+  # ---------------------------------------------------------------------------
+  # Job 4: Deploy to Production (manual approval)
+  # ---------------------------------------------------------------------------
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    environment: production
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.5'
+
+      - name: Get AKS credentials (prod)
+        run: |
+          az aks get-credentials \
+            --resource-group rg-mobile-platform-prod \
+            --name aks-mobile-platform-prod \
+            --overwrite-existing
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.14.0'
+
+      - name: Deploy to production
+        run: |
+          helm upgrade --install mobile-backend ${{ env.HELM_CHART }} \
+            --namespace ${{ env.NAMESPACE }} \
+            --create-namespace \
+            --set image.tag=${{ needs.build-push.outputs.image-tag }} \
+            --set env.APP_ENV=production \
+            --set replicaCount=3 \
+            --wait --timeout 10m
+
+      - name: Verify production rollout
+        run: |
+          kubectl rollout status deployment/mobile-backend-ios     -n ${{ env.NAMESPACE }} --timeout=5m
+          kubectl rollout status deployment/mobile-backend-android -n ${{ env.NAMESPACE }} --timeout=5m
+
+      - name: Notify Teams
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: "Production deploy ${{ job.status }}: mobile-backend @ ${{ needs.build-push.outputs.image-tag }}"
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK }}

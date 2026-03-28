@@ -1,0 +1,118 @@
+replicaCount: 3
+
+image:
+  repository: acrmobileplatformprod.azurecr.io/mobile-backend
+  pullPolicy: Always
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations:
+    azure.workload.identity/client-id: "REPLACE_WITH_CLIENT_ID"
+  name: "mobile-backend-sa"
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: "/metrics"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 3000
+  fsGroup: 2000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+    - ALL
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: api.mobile-platform.gov.uk
+      paths:
+        - path: /api/v1
+          pathType: Prefix
+  tls:
+    - secretName: mobile-platform-tls
+      hosts:
+        - api.mobile-platform.gov.uk
+
+resources:
+  limits:
+    cpu: "1000m"
+    memory: "1Gi"
+  requests:
+    cpu: "250m"
+    memory: "256Mi"
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector:
+  workload-type: mobile-backend
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchExpressions:
+          - key: app
+            operator: In
+            values:
+            - mobile-backend
+        topologyKey: kubernetes.io/hostname
+
+env:
+  APP_ENV: "production"
+  PORT: "8080"
+
+keyVault:
+  enabled: true
+  vaultName: "kv-mobile-plat-prod"
+  tenantId: "REPLACE_WITH_TENANT_ID"
+  secretProviderClass: "azure-keyvault-mobile-backend"
+
+livenessProbe:
+  httpGet:
+    path: /health/live
+    port: 8080
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  failureThreshold: 3
+  timeoutSeconds: 5
+
+readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  failureThreshold: 3
+  timeoutSeconds: 3

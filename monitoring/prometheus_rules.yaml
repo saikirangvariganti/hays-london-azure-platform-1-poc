@@ -1,0 +1,165 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mobile-backend-alerts
+  namespace: monitoring
+  labels:
+    app: kube-prometheus-stack
+    release: kube-prometheus-stack
+spec:
+  groups:
+  - name: mobile-backend.availability
+    interval: 30s
+    rules:
+    - alert: MobileBackendDown
+      expr: up{job="mobile-backend"} == 0
+      for: 2m
+      labels:
+        severity: critical
+        team: platform-engineering
+        platform: mobile
+      annotations:
+        summary: "Mobile backend instance is down"
+        description: "Mobile backend instance {{ $labels.instance }} has been down for more than 2 minutes."
+        runbook: "https://wiki.gov.uk/platform/runbooks/mobile-backend-down"
+
+    - alert: MobileBackendHighErrorRate
+      expr: |
+        rate(http_requests_total{job="mobile-backend", status=~"5.."}[5m])
+        / rate(http_requests_total{job="mobile-backend"}[5m]) > 0.05
+      for: 5m
+      labels:
+        severity: warning
+        team: platform-engineering
+        platform: mobile
+      annotations:
+        summary: "Mobile backend error rate above 5%"
+        description: "Error rate is {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+
+    - alert: MobileBackendCriticalErrorRate
+      expr: |
+        rate(http_requests_total{job="mobile-backend", status=~"5.."}[5m])
+        / rate(http_requests_total{job="mobile-backend"}[5m]) > 0.15
+      for: 2m
+      labels:
+        severity: critical
+        team: platform-engineering
+        platform: mobile
+      annotations:
+        summary: "Mobile backend critical error rate (>15%)"
+        description: "Error rate is {{ $value | humanizePercentage }} — immediate action required"
+
+  - name: mobile-backend.latency
+    interval: 30s
+    rules:
+    - alert: MobileBackendHighLatencyP95
+      expr: |
+        histogram_quantile(0.95,
+          rate(http_request_duration_seconds_bucket{job="mobile-backend"}[5m])
+        ) > 0.5
+      for: 5m
+      labels:
+        severity: warning
+        team: platform-engineering
+      annotations:
+        summary: "Mobile backend P95 latency above 500ms"
+        description: "P95 latency is {{ $value | humanizeDuration }} on {{ $labels.instance }}"
+
+    - alert: MobileBackendCriticalLatencyP99
+      expr: |
+        histogram_quantile(0.99,
+          rate(http_request_duration_seconds_bucket{job="mobile-backend"}[5m])
+        ) > 2.0
+      for: 3m
+      labels:
+        severity: critical
+        team: platform-engineering
+      annotations:
+        summary: "Mobile backend P99 latency above 2 seconds"
+        description: "P99 latency is {{ $value | humanizeDuration }} — SLA breach risk"
+
+  - name: mobile-backend.resources
+    interval: 60s
+    rules:
+    - alert: MobileBackendPodRestartingFrequently
+      expr: |
+        rate(kube_pod_container_status_restarts_total{
+          namespace="mobile-platform"
+        }[15m]) > 0
+      for: 10m
+      labels:
+        severity: warning
+        team: platform-engineering
+      annotations:
+        summary: "Pod {{ $labels.pod }} is restarting frequently"
+        description: "Pod {{ $labels.pod }} has restarted {{ $value | humanize }} times in the last 15 minutes"
+
+    - alert: MobileBackendCPUThrottled
+      expr: |
+        rate(container_cpu_throttled_seconds_total{
+          namespace="mobile-platform",
+          container="ios-backend"
+        }[5m]) > 0.5
+      for: 5m
+      labels:
+        severity: warning
+        team: platform-engineering
+      annotations:
+        summary: "Mobile backend container is CPU throttled"
+        description: "Container {{ $labels.container }} in {{ $labels.pod }} is CPU throttled at {{ $value | humanizePercentage }}"
+
+    - alert: MobileBackendMemoryHigh
+      expr: |
+        container_memory_working_set_bytes{
+          namespace="mobile-platform"
+        } / container_spec_memory_limit_bytes{
+          namespace="mobile-platform"
+        } > 0.90
+      for: 5m
+      labels:
+        severity: warning
+        team: platform-engineering
+      annotations:
+        summary: "Mobile backend memory usage above 90%"
+        description: "Container {{ $labels.container }} memory is at {{ $value | humanizePercentage }} of limit"
+
+  - name: mobile-backend.scaling
+    interval: 60s
+    rules:
+    - alert: HPAMaxReplicasReached
+      expr: |
+        kube_horizontalpodautoscaler_status_current_replicas{
+          namespace="mobile-platform"
+        } == kube_horizontalpodautoscaler_spec_max_replicas{
+          namespace="mobile-platform"
+        }
+      for: 10m
+      labels:
+        severity: warning
+        team: platform-engineering
+      annotations:
+        summary: "HPA has reached maximum replicas"
+        description: "HPA {{ $labels.horizontalpodautoscaler }} is at max replicas — consider scaling limits"
+
+  - name: aks.nodes
+    interval: 60s
+    rules:
+    - alert: AKSNodeNotReady
+      expr: kube_node_status_condition{condition="Ready", status="true"} == 0
+      for: 5m
+      labels:
+        severity: critical
+        team: platform-engineering
+      annotations:
+        summary: "AKS node {{ $labels.node }} is not ready"
+        description: "Node {{ $labels.node }} has been NotReady for more than 5 minutes"
+
+    - alert: AKSNodeDiskPressure
+      expr: kube_node_status_condition{condition="DiskPressure", status="true"} == 1
+      for: 5m
+      labels:
+        severity: warning
+        team: platform-engineering
+      annotations:
+        summary: "AKS node {{ $labels.node }} has disk pressure"
+        description: "Node {{ $labels.node }} is experiencing disk pressure"

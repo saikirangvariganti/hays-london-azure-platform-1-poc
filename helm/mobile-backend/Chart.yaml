@@ -1,0 +1,20 @@
+apiVersion: v2
+name: mobile-backend
+description: Helm chart for iOS/Android mobile app backend on AKS (Public Sector)
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - mobile
+  - backend
+  - aks
+  - azure
+  - ios
+  - android
+maintainers:
+  - name: Sai Kiran Goud Variganti
+    email: kiransaivarisai@gmail.com
+sources:
+  - https://github.com/saikirangvariganti/hays-london-azure-platform-1-poc
+annotations:
+  category: Backend

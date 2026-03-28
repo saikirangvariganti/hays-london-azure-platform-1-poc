@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mobile-backend-ios-svc
+  namespace: mobile-platform
+  labels:
+    app: mobile-backend
+    platform: ios
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+spec:
+  type: ClusterIP
+  selector:
+    app: mobile-backend
+    platform: ios
+  ports:
+  - name: http
+    protocol: TCP
+    port: 80
+    targetPort: 8080
+  - name: metrics
+    protocol: TCP
+    port: 8081
+    targetPort: 8081
+  sessionAffinity: None
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mobile-backend-android-svc
+  namespace: mobile-platform
+  labels:
+    app: mobile-backend
+    platform: android
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+spec:
+  type: ClusterIP
+  selector:
+    app: mobile-backend
+    platform: android
+  ports:
+  - name: http
+    protocol: TCP
+    port: 80
+    targetPort: 8080
+  - name: metrics
+    protocol: TCP
+    port: 8081
+    targetPort: 8081
+  sessionAffinity: None
